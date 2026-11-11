@@ -223,30 +223,18 @@ class StatefulBrowser(Browser):
 
         :return: The selected form as a soup object. It can also be
             retrieved later with the :attr:`form` attribute.
+
+        This never modifies the page's DOM: controls located outside the
+        ``<form>`` element are associated with it transparently (through
+        their ``form`` attribute or their nearest ancestor form) when
+        filling fields or submitting, and remain at their original
+        position in the document.
         """
         if self.page is None:
             raise AttributeError(
                 "No page has been opened yet on this browser, or the last "
                 "response was not parsed as a page (e.g. it was not HTML)."
             )
-
-        def find_associated_elements(form_id, page):
-            """Find all elements associated to a form
-                (i.e. an element with a form attribute -> ``form=form_id``)
-            """
-
-            # Elements which can have a form owner
-            elements_with_owner_form = ("input", "button", "fieldset",
-                                        "object", "output", "select",
-                                        "textarea")
-
-            found_elements = []
-
-            for element in elements_with_owner_form:
-                found_elements.extend(
-                    page.find_all(element, form=form_id)
-                )
-            return found_elements
 
         if isinstance(selector, bs4.element.Tag):
             if selector.name != "form":
@@ -263,10 +251,6 @@ class StatefulBrowser(Browser):
                 raise LinkNotFoundError()
 
             form = found_forms[-1]
-
-        if form and form.has_attr('id'):
-            new_elements = find_associated_elements(form.get("id"), self.page)
-            form.extend(new_elements)
 
         self.__state.form = Form(form)
 

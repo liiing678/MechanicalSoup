@@ -6,7 +6,8 @@ import warnings
 
 import bs4
 
-from .utils import LinkNotFoundError, is_multipart_file_upload
+from .utils import (LinkNotFoundError, is_multipart_file_upload,
+                    iter_form_controls)
 
 
 class InvalidFormMethod(LinkNotFoundError):
@@ -58,6 +59,25 @@ class Form:
         """Get the currently selected submit element."""
         return self._submit_chosen
 
+    def _controls(
+        self,
+        name: str | None = None,
+        tag_name: str | None = None,
+    ) -> list[bs4.element.Tag]:
+        """Return the controls owned by this form, in document order.
+
+        Unlike searching inside the ``<form>`` tag directly, this includes
+        controls bound through a ``form`` attribute while never moving or
+        copying DOM nodes. Ownership is re-evaluated against the live DOM
+        on every call.
+        """
+        controls = iter_form_controls(self.form)
+        if tag_name is not None:
+            controls = (c for c in controls if c.name == tag_name)
+        if name is not None:
+            controls = (c for c in controls if c.get("name") == name)
+        return list(controls)
+
     def set_input(self, data: Mapping[str, Any]) -> None:
         """Fill-in a set of fields in a form.
 
@@ -73,9 +93,10 @@ class Form:
         """
 
         for (name, value) in data.items():
-            i = self.form.find("input", {"name": name})
-            if not i:
+            inputs = self._controls(name, "input")
+            if not inputs:
                 raise InvalidFormMethod("No input field named " + name)
+            i = inputs[0]
             self._assert_valid_file_upload(i, value)
             i["value"] = value
 
@@ -83,7 +104,7 @@ class Form:
         """Remove the *checked*-attribute of all input elements with
         a *name*-attribute given by ``name``.
         """
-        for option in self.form.find_all("input", {"name": name}):
+        for option in self._controls(name, "input"):
             if "checked" in option.attrs:
                 del option.attrs["checked"]
 
@@ -125,9 +146,11 @@ class Form:
             the HTML is served.
         """
         for (name, value) in data.items():
-            # Case-insensitive search for type=checkbox
-            selector = 'input[type="checkbox" i][name="{}"]'.format(name)
-            checkboxes = self.form.select(selector)
+            # Case-insensitive match on type=checkbox
+            checkboxes = [
+                inp for inp in self._controls(name, "input")
+                if inp.get("type", "").lower() == "checkbox"
+            ]
             if not checkboxes:
                 raise InvalidFormMethod("No input checkbox named " + name)
 
@@ -170,9 +193,11 @@ class Form:
             Only one radio button in the family can be checked.
         """
         for (name, value) in data.items():
-            # Case-insensitive search for type=radio
-            selector = 'input[type="radio" i][name="{}"]'.format(name)
-            radios = self.form.select(selector)
+            # Case-insensitive match on type=radio
+            radios = [
+                inp for inp in self._controls(name, "input")
+                if inp.get("type", "").lower() == "radio"
+            ]
             if not radios:
                 raise InvalidFormMethod("No input radio named " + name)
 
@@ -198,10 +223,10 @@ class Form:
             its *string*-attribute set to ``value``.
         """
         for (name, value) in data.items():
-            t = self.form.find("textarea", {"name": name})
-            if not t:
+            textareas = self._controls(name, "textarea")
+            if not textareas:
                 raise InvalidFormMethod("No textarea named " + name)
-            t.string = value
+            textareas[0].string = value
 
     def set_select(self, data: Mapping[str, Any]) -> None:
         """Set the *selected*-attribute of the first option element
@@ -216,9 +241,10 @@ class Form:
             then ``value`` can be a list or tuple to select multiple options.
         """
         for (name, value) in data.items():
-            select = self.form.find("select", {"name": name})
-            if not select:
+            selects = self._controls(name, "select")
+            if not selects:
                 raise InvalidFormMethod("No select named " + name)
+            select = selects[0]
 
             # Deselect all options first
             for option_ in select.find_all("option"):
@@ -304,9 +330,12 @@ class Form:
 
         The arguments set the attributes of the new element.
         """
-        # Remove existing input-like elements with the same name
-        for tag in ('input', 'textarea', 'select'):
-            for old in self.form.find_all(tag, {'name': name}):
+        # Remove existing input-like elements with the same name that are
+        # owned by this form (including form-attribute-bound controls
+        # outside the <form> tag). Buttons are intentionally left alone,
+        # matching the historical behavior of new_control.
+        for tag in ("input", "textarea", "select"):
+            for old in self._controls(name, tag):
                 old.decompose()
         # We don't have access to the original soup object (just the
         # Tag), so we instantiate a new BeautifulSoup() to call
@@ -354,10 +383,18 @@ class Form:
             self._submit_chosen = False
             return self._submit_chosen
 
-        # All buttons NOT of type (button,reset) are valid submits
-        # Case-insensitive search for type=submit
+        # All buttons NOT of type (button,reset) are valid submits.
+        # Search the form's owned controls (including form-attribute-bound
+        # ones outside the <form> tag) in document order.
         inps = [
-            inp for inp in self.form.select('input[type="submit" i], button')
+            inp for inp in self._controls()
+            if inp.name == "button" or (
+                inp.name == "input"
+                and inp.get("type", "").lower() == "submit"
+            )
+        ]
+        inps = [
+            inp for inp in inps
             if (
                 not isinstance(inp_type := inp.get("type"), str)
                 or inp_type.lower() not in ('button', 'reset')
@@ -396,8 +433,7 @@ class Form:
 
         May help finding which fields need to be filled-in.
         """
-        for input in self.form.find_all(
-                ("input", "textarea", "select", "button")):
+        for input in iter_form_controls(self.form):
             input_copy = copy.copy(input)
             # Text between the opening tag and the closing tag often
             # contains a lot of spaces that we don't want here.

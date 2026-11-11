@@ -515,7 +515,12 @@ def test_select_form_tag_object():
 
 
 def test_select_form_associated_elements():
-    """Test associated elements outside the form tag"""
+    """Test associated elements outside the form tag.
+
+    Elements bound to a form through a ``form`` attribute are treated as
+    part of the form without being moved in the DOM: the page structure
+    must stay identical after selecting a form.
+    """
     forms = """<form id="a"><input><textarea></textarea></form><input form="a">
                <textarea form="a"/><input form="b">
                <form id="ab" action="/test.php"><input></form>
@@ -523,19 +528,50 @@ def test_select_form_associated_elements():
             """
     with mechanicalsoup.StatefulBrowser() as browser:
         browser.open_fake_page(forms)
+
+        # Snapshot the document before any form is selected.
+        document_before = str(browser.page)
+
         elements_form_a = set([
             "<input/>", "<textarea></textarea>",
             '<input form="a"/>', '<textarea form="a"></textarea>'])
-        elements_form_ab = set(["<input/>", '<textarea form="ab"></textarea>'])
+        elements_form_ab = set(["<input/>",
+                                '<textarea form="ab"></textarea>'])
         form_by_str = browser.select_form("#a")
         form_by_tag = browser.select_form(browser.page.find("form", id='a'))
         form_by_css = browser.select_form("form[action$='.php']")
-        assert set([str(element) for element in form_by_str.form.find_all((
-            "input", "textarea"))]) == elements_form_a
-        assert set([str(element) for element in form_by_tag.form.find_all((
-            "input", "textarea"))]) == elements_form_a
-        assert set([str(element) for element in form_by_css.form.find_all((
-            "input", "textarea"))]) == elements_form_ab
+
+        # The DOM must not have been modified by select_form.
+        assert str(browser.page) == document_before
+
+        # The <form> tag itself must still contain only its original
+        # children.
+        assert [c.name for c in form_by_str.form.children] == [
+            "input", "textarea"]
+
+        def owned_control_strings(form):
+            from mechanicalsoup.utils import iter_form_controls
+            return set(str(element)
+                       for element in iter_form_controls(form.form))
+
+        assert owned_control_strings(form_by_str) == elements_form_a
+        assert owned_control_strings(form_by_tag) == elements_form_a
+        assert owned_control_strings(form_by_css) == elements_form_ab
+
+        # The element pointing at a non-existent form id has no owner and
+        # must not show up in any selected form.
+        orphan = browser.page.find("input", form="b")
+        from mechanicalsoup.utils import get_form_owner
+        assert get_form_owner(orphan) is None
+
+        # Selecting forms in turn must keep returning the same results
+        # (regression: the old implementation moved nodes into the first
+        # selected form, so switching forms changed the outcome).
+        assert owned_control_strings(browser.select_form("#a")) == \
+            elements_form_a
+        assert owned_control_strings(
+            browser.select_form("form[action$='.php']")) == elements_form_ab
+        assert str(browser.page) == document_before
 
 
 def test_referer_follow_link(httpbin):

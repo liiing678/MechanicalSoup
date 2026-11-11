@@ -195,6 +195,41 @@ To sum up, here is the complete example (`examples/expl_httpbin.py
 
 .. literalinclude:: ../examples/expl_httpbin.py
 
+Several forms and controls outside a form
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A page can contain several forms. Pass a CSS selector (and, if needed,
+the zero-based ``nr`` argument) to
+:func:`~mechanicalsoup.StatefulBrowser.select_form` to pick one::
+
+  browser.select_form("#login")
+  # ... fill and submit ...
+  browser.select_form("#search")
+
+Selecting a form never modifies the page's DOM, so you can switch back
+and forth between forms and keep getting the same controls each time.
+
+HTML also allows a control to sit outside its ``<form>`` element and be
+bound to it with a ``form`` attribute referencing the form's ``id``::
+
+  <form id="login" method="post" action="/login">
+    <input name="user"/>
+  </form>
+  <!-- outside the form tag, but still part of the form -->
+  <input name="password" form="login"/>
+  <button type="submit" name="ok" value="1" form="login">Log in</button>
+
+MechanicalSoup treats such controls exactly like nested ones: filling
+the field, selecting a radio button or checkbox, choosing the submit
+button with :func:`~mechanicalsoup.Form.choose_submit` and submitting all
+operate on the same set of controls, and the fields are sent in document
+order. A ``form`` attribute referencing an id that does not exist means
+the control belongs to no form, so it cannot be filled through a form
+and is never submitted. A control without a ``form`` attribute belongs
+to its nearest ancestor form. Ownership is re-evaluated on every
+operation, so changing a control's ``form`` attribute takes effect on
+the next fill or submission.
+
 .. _requests: http://docs.python-requests.org/en/master/
 .. _requests.Response: http://docs.python-requests.org/en/master/api/#requests.Response
 .. _bs4.BeautifulSoup: https://www.crummy.com/software/BeautifulSoup/bs4/doc/#beautifulsoup

@@ -13,6 +13,26 @@ Version 1.5 (in development)
 * Form controls inside a disabled ``<fieldset>`` are no longer submitted,
   matching browser behavior and the HTML specification. Controls inside the
   fieldset's first ``<legend>`` remain enabled.
+
+* Form ownership of controls located outside the ``<form>`` element is now
+  resolved per the HTML specification instead of moving DOM nodes:
+
+  - ``StatefulBrowser.select_form`` no longer copies or relocates any
+    element, so selecting one form (and then another) leaves the page
+    structure untouched.
+  - A control carrying a ``form`` attribute belongs to the form whose
+    ``id`` it points at; if that id does not exist, the control belongs to
+    no form and is never submitted. A control without a ``form`` attribute
+    belongs to its nearest ancestor form.
+  - Ownership is recomputed against the live DOM on every operation, so
+    changing a ``form`` attribute takes effect on the next fill or
+    submission without re-selecting the form.
+  - Filling fields, ticking checkboxes/radios, choosing the submit button
+    and submitting now all see the same set of controls, including
+    external ``<input>``, ``<select>``, ``<textarea>`` and ``<button>``
+    elements. Document order and same-name multi-value fields are
+    preserved, and disabled controls are evaluated against the original
+    DOM.
 * ``StatefulBrowser.links`` now raises an explanatory ``AttributeError`` when
   no page is loaded, instead of failing inside BeautifulSoup.
 

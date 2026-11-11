@@ -13,7 +13,8 @@ import requests
 
 from .__version__ import __title__, __version__
 from .form import Form
-from .utils import LinkNotFoundError, is_disabled, is_multipart_file_upload
+from .utils import (LinkNotFoundError, is_disabled, is_multipart_file_upload,
+                    iter_form_controls)
 
 
 class ResponseWithSoup(requests.Response):
@@ -242,13 +243,16 @@ class Browser:
 
         multipart = form.get("enctype", "") == "multipart/form-data"
 
-        # Process form tags in the order that they appear on the page,
-        # skipping those tags that do not have a name-attribute.
-        selector = ",".join(f"{tag}[name]" for tag in
-                            ("input", "button", "textarea", "select"))
+        # Process the form's controls in the order in which they appear in
+        # the document, skipping those without a name-attribute. Controls
+        # bound to the form through a `form` attribute are included without
+        # moving any DOM node; ownership is re-evaluated against the live
+        # tree on every submission.
         submit_added = False
-        for tag in form.select(selector):
+        for tag in iter_form_controls(form):
             name = tag.get("name")  # name-attribute of tag
+            if not name:
+                continue
 
             # Skip disabled elements, since they should not be submitted.
             # A control is also disabled when it descends from a disabled
